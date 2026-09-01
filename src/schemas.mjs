@@ -37,6 +37,24 @@ export const ActivitySourceSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
+export const ActivityObservationRequestSchema = z.object({
+  version: z.literal(1),
+  month: z.string().regex(/^\d{4}-\d{2}$/),
+  targetMode: z.enum(["complete", "selected"]),
+  accountKeys: z.array(z.string().min(1)).default([]),
+  generatedAt: z.string().min(1).optional(),
+  accountKeysSha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+});
+
+export const CompleteActivityObservationRequestSchema = z.object({
+  version: z.literal(1),
+  month: z.string().regex(/^\d{4}-\d{2}$/),
+  targetMode: z.enum(["complete", "selected"]),
+  accountKeys: z.array(z.string().min(1)),
+  generatedAt: z.string().min(1),
+  accountKeysSha256: z.string().regex(/^[0-9a-f]{64}$/),
+});
+
 export const TargetRowSchema = z.object({
   creatorRecordId: z.string().min(1),
   accountKey: z.string().min(1),
@@ -90,6 +108,21 @@ export const ReadCreatorActivityOutputSchema = z.object({
   status: z.literal("ok"),
   snapshot: ActivitySnapshotSchema,
   sourceContext: SourceContextSchema,
+});
+
+export const ObserveCreatorActivityOutputSchema = z.object({
+  status: z.enum(["interaction_required", "completed"]),
+  request: CompleteActivityObservationRequestSchema,
+  sourceContext: SourceContextSchema,
+  instructions: z.string().min(1).optional(),
+  snapshot: ActivitySnapshotSchema.optional(),
+});
+
+export const ValidateCreatorActivityOutputSchema = z.object({
+  status: z.literal("validated"),
+  request: CompleteActivityObservationRequestSchema,
+  sourceContext: SourceContextSchema,
+  snapshot: ActivitySnapshotSchema,
 });
 
 export const ObserveInvitationStatusOutputSchema = z.object({

@@ -13,6 +13,8 @@ import {
 
 export const XLSX_INPUT_KIND =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+export const ACTIVITY_OBSERVATION_INPUT_KIND =
+  "application/vnd.live-agency.creator-activity-observation-request+json";
 export const INVITATION_TARGET_INPUT_KIND =
   "application/vnd.live-agency.creator-invitation-targets+json";
 
@@ -110,6 +112,58 @@ export function completeTargetManifest(value, now = () => new Date()) {
   };
 }
 
+export function completeActivityObservationRequest(value, now = () => new Date()) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError("activity observation request must be an object");
+  }
+  if (
+    value.version !== 1 ||
+    !/^\d{4}-(?:0[1-9]|1[0-2])$/.test(value.month) ||
+    !["complete", "selected"].includes(value.targetMode)
+  ) {
+    throw new TypeError("activity observation request format is invalid");
+  }
+
+  const suppliedAccounts = value.accountKeys ?? [];
+  if (!Array.isArray(suppliedAccounts)) {
+    throw new TypeError("activity observation request accountKeys must be an array");
+  }
+  const accountKeys = suppliedAccounts.map((accountKey, index) => {
+    const normalized = normalizeAccountKey(accountKey);
+    if (!normalized) {
+      throw new TypeError(`activity observation request accountKeys[${index}] is invalid`);
+    }
+    return normalized;
+  });
+  if (new Set(accountKeys).size !== accountKeys.length) {
+    throw new TypeError("activity observation request accountKeys are duplicated");
+  }
+  if (value.targetMode === "complete" && accountKeys.length !== 0) {
+    throw new TypeError("complete activity observation must not specify accountKeys");
+  }
+  if (value.targetMode === "selected" && accountKeys.length === 0) {
+    throw new TypeError("selected activity observation requires accountKeys");
+  }
+
+  const generatedAt = value.generatedAt ?? now().toISOString();
+  assertIsoDateTime(generatedAt, "activity observation request generatedAt");
+  const accountKeysSha256 = sha256Json(accountKeys);
+  if (
+    value.accountKeysSha256 !== undefined &&
+    value.accountKeysSha256 !== accountKeysSha256
+  ) {
+    throw new TypeError("activity observation request accountKeysSha256 does not match accountKeys");
+  }
+  return {
+    version: 1,
+    month: value.month,
+    targetMode: value.targetMode,
+    accountKeys,
+    generatedAt: new Date(generatedAt).toISOString(),
+    accountKeysSha256,
+  };
+}
+
 function sourceContext(provider, capability) {
   return {
     capability,
@@ -118,6 +172,23 @@ function sourceContext(provider, capability) {
     bindingId: provider.bindingId,
     knowledgeVersion: provider.knowledgeVersion ?? null,
   };
+}
+
+function assertSourceContext(context, capability) {
+  if (!context || typeof context !== "object" || context.capability !== capability) {
+    throw new TypeError(`sourceContext.capability must be ${capability}`);
+  }
+  for (const key of ["providerPackage", "providerVersion", "bindingId"]) {
+    if (typeof context[key] !== "string" || !context[key]) {
+      throw new TypeError(`sourceContext.${key} is required`);
+    }
+  }
+  if (
+    context.knowledgeVersion !== null &&
+    (typeof context.knowledgeVersion !== "string" || !context.knowledgeVersion)
+  ) {
+    throw new TypeError("sourceContext.knowledgeVersion must be a string or null");
+  }
 }
 
 function activityRequest(source) {
@@ -184,6 +255,45 @@ export function matchInvitationObservations(observationsValue, manifestValue) {
   return { ...observations, creators };
 }
 
+export function matchCreatorActivityObservation(snapshotValue, requestValue) {
+  const snapshot = validateActivitySnapshot(snapshotValue);
+  const request = completeActivityObservationRequest(requestValue);
+  if (snapshot.month !== request.month) {
+    throw new TypeError(
+      `activity snapshot month ${snapshot.month} does not match request month ${request.month}`,
+    );
+  }
+
+  const seen = new Set();
+  const creators = snapshot.creators.map((creator) => {
+    const accountKey = normalizeAccountKey(creator.accountKey);
+    if (!accountKey || seen.has(accountKey)) {
+      throw new TypeError(
+        `activity snapshot accountKey is invalid or duplicated: ${creator.accountKey}`,
+      );
+    }
+    seen.add(accountKey);
+    return { ...creator, accountKey };
+  });
+
+  if (request.targetMode === "selected") {
+    const requested = new Set(request.accountKeys);
+    const extras = [...seen].filter((accountKey) => !requested.has(accountKey));
+    const missing = [...requested].filter((accountKey) => !seen.has(accountKey));
+    if (extras.length > 0) {
+      throw new TypeError(
+        `activity snapshot contains unrequested accounts: ${extras.join(", ")}`,
+      );
+    }
+    if (missing.length > 0) {
+      throw new TypeError(
+        `activity snapshot is missing requested accounts: ${missing.join(", ")}`,
+      );
+    }
+  }
+  return { ...snapshot, creators };
+}
+
 const defaultProviderApi = {
   discoverProviders,
   resolveProvider,
@@ -224,6 +334,51 @@ export function createOperationsRuntime({
       };
     },
 
+    async observeCreatorActivity({ request: requestValue }) {
+      const request = completeActivityObservationRequest(requestValue, now);
+      const providerRequest = {
+        inputKind: ACTIVITY_OBSERVATION_INPUT_KIND,
+        activityObservationRequest: request,
+      };
+      const provider = await selectProvider(
+        ACTIVITY_CAPABILITY,
+        providerRequest,
+        false,
+      );
+      const context = sourceContext(provider, ACTIVITY_CAPABILITY);
+      if (provider.executionKind === "instructions") {
+        if (typeof provider.instructions !== "string" || !provider.instructions.trim()) {
+          throw new TypeError("interactive provider instructions are missing");
+        }
+        return {
+          status: "interaction_required",
+          request,
+          sourceContext: context,
+          instructions: provider.instructions,
+        };
+      }
+      return {
+        status: "completed",
+        request,
+        sourceContext: context,
+        snapshot: matchCreatorActivityObservation(
+          await providerApi.readFromProvider(provider, providerRequest),
+          request,
+        ),
+      };
+    },
+
+    validateCreatorActivity({ request: requestValue, sourceContext: context, snapshot }) {
+      const request = completeActivityObservationRequest(requestValue, now);
+      assertSourceContext(context, ACTIVITY_CAPABILITY);
+      return {
+        status: "validated",
+        request,
+        sourceContext: { ...context },
+        snapshot: matchCreatorActivityObservation(snapshot, request),
+      };
+    },
+
     async observeCreatorInvitationStatus({ targetManifest }) {
       const manifest = completeTargetManifest(targetManifest, now);
       const request = {
@@ -257,26 +412,7 @@ export function createOperationsRuntime({
 
     validateCreatorInvitationStatus({ targetManifest, sourceContext: context, observations }) {
       const manifest = completeTargetManifest(targetManifest, now);
-      if (
-        !context ||
-        typeof context !== "object" ||
-        context.capability !== INVITATION_CAPABILITY
-      ) {
-        throw new TypeError(
-          `sourceContext.capability must be ${INVITATION_CAPABILITY}`,
-        );
-      }
-      for (const key of ["providerPackage", "providerVersion", "bindingId"]) {
-        if (typeof context[key] !== "string" || !context[key]) {
-          throw new TypeError(`sourceContext.${key} is required`);
-        }
-      }
-      if (
-        context.knowledgeVersion !== null &&
-        (typeof context.knowledgeVersion !== "string" || !context.knowledgeVersion)
-      ) {
-        throw new TypeError("sourceContext.knowledgeVersion must be a string or null");
-      }
+      assertSourceContext(context, INVITATION_CAPABILITY);
       return {
         status: "validated",
         targetManifest: manifest,

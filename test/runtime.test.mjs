@@ -7,7 +7,9 @@ import {
 } from "@live-agency-skills/source-provider-api";
 
 import {
+  completeActivityObservationRequest,
   createOperationsRuntime,
+  matchCreatorActivityObservation,
   matchInvitationObservations,
 } from "../src/runtime.mjs";
 
@@ -88,6 +90,95 @@ test("readCreatorActivity maps a source to a capability provider and validates o
       knowledgeVersion: "synthetic/2026-09-01.1",
     },
   });
+});
+
+test("observeCreatorActivity returns content-bound private instructions", async () => {
+  const provider = {
+    packageName: "@synthetic/activity-provider",
+    packageVersion: "2.0.0",
+    bindingId: "activity-observation",
+    knowledgeVersion: "synthetic-activity/2026-09-01.1",
+    executionKind: "instructions",
+    instructions: "Observe the exact month and selected accounts.",
+  };
+  let resolved;
+  const api = providerApi(provider, null);
+  const originalResolve = api.resolveProvider;
+  api.resolveProvider = async (input) => {
+    resolved = input;
+    return originalResolve(input);
+  };
+  const runtime = createOperationsRuntime({
+    rootDir: "/synthetic/runtime",
+    providerApi: api,
+    now: () => new Date("2026-09-01T03:00:00.000Z"),
+  });
+
+  const result = await runtime.observeCreatorActivity({
+    request: {
+      version: 1,
+      month: "2026-08",
+      targetMode: "selected",
+      accountKeys: ["@Synthetic.Creator"],
+    },
+  });
+
+  assert.equal(result.status, "interaction_required");
+  assert.equal(result.instructions, provider.instructions);
+  assert.deepEqual(result.request.accountKeys, ["synthetic.creator"]);
+  assert.equal(result.request.generatedAt, "2026-09-01T03:00:00.000Z");
+  assert.match(result.request.accountKeysSha256, /^[0-9a-f]{64}$/);
+  assert.equal(
+    resolved.request.inputKind,
+    "application/vnd.live-agency.creator-activity-observation-request+json",
+  );
+  assert.equal(resolved.unattended, false);
+});
+
+test("activity observation validation requires the exact month and selected accounts", () => {
+  const request = completeActivityObservationRequest({
+    version: 1,
+    month: "2026-08",
+    targetMode: "selected",
+    accountKeys: ["@Synthetic.Creator"],
+    generatedAt: "2026-09-01T03:00:00.000Z",
+  });
+  const snapshot = {
+    month: "2026-08",
+    sourceUpdatedAt: "2026-09-01T03:05:00.000Z",
+    rowCount: 1,
+    creators: [{
+      accountKey: "SYNTHETIC.CREATOR",
+      diamonds: 1200,
+      effectiveLiveDays: 8,
+      liveMinutes: 945,
+    }],
+  };
+
+  assert.equal(
+    matchCreatorActivityObservation(snapshot, request).creators[0].accountKey,
+    "synthetic.creator",
+  );
+  assert.throws(
+    () => matchCreatorActivityObservation({ ...snapshot, month: "2026-07" }, request),
+    /does not match request month/,
+  );
+  assert.throws(
+    () => matchCreatorActivityObservation({
+      ...snapshot,
+      creators: [{ ...snapshot.creators[0], accountKey: "not_requested" }],
+    }, request),
+    /unrequested accounts/,
+  );
+  assert.throws(
+    () => completeActivityObservationRequest({
+      version: 1,
+      month: "2026-08",
+      targetMode: "complete",
+      accountKeys: ["synthetic.creator"],
+    }),
+    /must not specify accountKeys/,
+  );
 });
 
 test("observeCreatorInvitationStatus returns interaction_required without executing instructions", async () => {

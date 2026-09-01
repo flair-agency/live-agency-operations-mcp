@@ -8,6 +8,10 @@ All Phase 1 operations are read-only.
 
 - `read_creator_activity`: Normalize monthly diamonds, effective LIVE days, and
   LIVE minutes.
+- `observe_creator_activity`: Resolve an interactive, source-specific activity
+  acquisition provider for an exact month and complete or selected scope.
+- `validate_creator_activity_observations`: Verify the normalized activity
+  snapshot against that exact request and provider context.
 - `observe_creator_invitation_status`: Resolve an invitation-status provider. An
   interactive provider returns private instructions for use in an authenticated
   browser session.
@@ -54,5 +58,5 @@ Install the composition-root workspaces, then run:
 npm run test:mcp
 ```
 
-After adding the configuration, restart Codex and confirm that all three tools
+After adding the configuration, restart Codex and confirm that all five tools
 appear in the MCP tool list.

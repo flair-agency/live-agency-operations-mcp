@@ -22,7 +22,7 @@ async function connected(runtime) {
   };
 }
 
-test("MCP advertises three source-neutral, read-only tools and server safety instructions", async (t) => {
+test("MCP advertises five source-neutral, read-only tools and server safety instructions", async (t) => {
   const connection = await connected({});
   t.after(() => connection.close());
 
@@ -31,6 +31,8 @@ test("MCP advertises three source-neutral, read-only tools and server safety ins
     listed.tools.map((tool) => tool.name),
     [
       "read_creator_activity",
+      "observe_creator_activity",
+      "validate_creator_activity_observations",
       "observe_creator_invitation_status",
       "validate_creator_invitation_status_observations",
     ],
@@ -39,6 +41,47 @@ test("MCP advertises three source-neutral, read-only tools and server safety ins
   assert.equal(listed.tools.every((tool) => tool.annotations?.destructiveHint === false), true);
   assert.equal(connection.client.getInstructions(), SERVER_INSTRUCTIONS);
   assert.match(connection.client.getInstructions(), /never authorizes invitations/i);
+});
+
+test("MCP returns private activity instructions with a content-bound request", async (t) => {
+  const connection = await connected({
+    async observeCreatorActivity({ request }) {
+      return {
+        status: "interaction_required",
+        request: {
+          ...request,
+          accountKeys: ["synthetic.creator"],
+          generatedAt: "2026-09-01T00:00:00.000Z",
+          accountKeysSha256: "a".repeat(64),
+        },
+        sourceContext: {
+          capability: "creator-activity-source/v1",
+          providerPackage: "@synthetic/provider",
+          providerVersion: "1.0.0",
+          bindingId: "activity-observation",
+          knowledgeVersion: "synthetic/1",
+        },
+        instructions: "Synthetic private instructions.",
+      };
+    },
+  });
+  t.after(() => connection.close());
+
+  const result = await connection.client.callTool({
+    name: "observe_creator_activity",
+    arguments: {
+      request: {
+        version: 1,
+        month: "2026-08",
+        targetMode: "selected",
+        accountKeys: ["@Synthetic.Creator"],
+      },
+    },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.structuredContent.status, "interaction_required");
+  assert.equal(result.structuredContent.instructions, "Synthetic private instructions.");
 });
 
 test("MCP returns validated structured creator activity", async (t) => {
