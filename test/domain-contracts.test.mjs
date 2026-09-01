@@ -2,8 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  CreatorIdentitySchema,
-  DiscoveryIdentitySchema,
+  AccountObservationSubjectSchema,
   InstanceProfileRefSchema,
   ObservationEnvelopeSchema,
   ReadbackResultSchema,
@@ -13,43 +12,20 @@ import {
   sha256CanonicalJson,
 } from "../src/domain-contracts.mjs";
 
-test("creator identity is Flair-owned and platform identity stays separate", () => {
-  const identity = CreatorIdentitySchema.parse({
+test("account observation reference does not assert a Flair person or creator identity", () => {
+  const subject = AccountObservationSubjectSchema.parse({
     version: 2,
-    creatorId: "6ba7b810-9dad-41d1-80b4-00c04fd430c8",
-    platformIdentities: [
-      {
-        platform: "tiktok",
-        accountKey: "synthetic.creator",
-        platformUserId: "synthetic-platform-id",
-      },
-    ],
+    accountReference: {
+      platform: "tiktok",
+      accountKey: "synthetic.creator",
+      platformUserId: "synthetic-platform-id",
+    },
   });
 
-  assert.equal(identity.creatorId, "6ba7b810-9dad-41d1-80b4-00c04fd430c8");
-  assert.equal(identity.platformIdentities[0].accountKey, "synthetic.creator");
-  assert.throws(
-    () =>
-      CreatorIdentitySchema.parse({
-        version: 2,
-        creatorId: "rec_lark_record_id",
-        platformIdentities: [{ platform: "tiktok", accountKey: "synthetic.creator" }],
-      }),
-    /Invalid UUID/i,
-  );
-});
-
-test("discovery identity does not pretend an unregistered account is a creator", () => {
-  const identity = DiscoveryIdentitySchema.parse({
-    version: 2,
-    discoveryKey: { platform: "tiktok", accountKey: "new.discovery" },
-  });
-
-  assert.deepEqual(identity.discoveryKey, {
-    platform: "tiktok",
-    accountKey: "new.discovery",
-  });
-  assert.equal("creatorId" in identity, false);
+  assert.equal(subject.accountReference.accountKey, "synthetic.creator");
+  assert.equal("creatorId" in subject, false);
+  assert.equal("personId" in subject, false);
+  assert.equal("platformAccountId" in subject, false);
 });
 
 test("read audit context is deterministic and rejects the aggregate domain", () => {
@@ -108,7 +84,7 @@ test("observation evidence and unavailable values have source-neutral envelopes"
     observedAt: "2026-09-02T00:00:00.000Z",
     subject: {
       version: 2,
-      discoveryKey: { platform: "tiktok", accountKey: "synthetic.creator" },
+      accountReference: { platform: "tiktok", accountKey: "synthetic.creator" },
     },
     providerBinding: {
       providerFamily: "tiktok",

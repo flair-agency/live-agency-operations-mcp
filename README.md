@@ -37,9 +37,11 @@ Each domain result includes a content-bound audit context with contract version,
 domain, read authority, tool name, request identity and hash, target and observed
 counts, and the resolved Provider Binding. Lark writes and BackStage
 relationship-changing actions are not available in either process. Shared v2
-schemas also define creator and discovery identity, observation evidence,
+schemas also define account-observation references, observation evidence,
 unavailable values, write intent, approval, and readback results; write tools are
-not exposed in this release.
+not exposed in this release. They deliberately do not define a Flair-owned
+person, candidacy, platform-account, creator, or membership ID while the v2
+identity model is under review.
 
 The domain entrypoints load exact capability/input-to-Binding routes from
 `config/v2-provider-binding-profiles.json` in the composition root. Missing,

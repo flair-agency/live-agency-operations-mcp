@@ -28,24 +28,15 @@ export const ProviderBindingRefSchema = z.object({
   knowledgeVersion: z.string().min(1).nullable(),
 });
 
-export const PlatformIdentitySchema = z.object({
+export const PlatformAccountReferenceSchema = z.object({
   platform: z.literal("tiktok"),
   accountKey: z.string().min(1),
   platformUserId: z.string().min(1).nullable().optional(),
 });
 
-export const CreatorIdentitySchema = z.object({
+export const AccountObservationSubjectSchema = z.object({
   version: z.literal(DOMAIN_CONTRACT_VERSION),
-  creatorId: z.string().uuid(),
-  platformIdentities: z.array(PlatformIdentitySchema).min(1),
-});
-
-export const DiscoveryIdentitySchema = z.object({
-  version: z.literal(DOMAIN_CONTRACT_VERSION),
-  discoveryKey: z.object({
-    platform: z.literal("tiktok"),
-    accountKey: z.string().min(1),
-  }),
+  accountReference: PlatformAccountReferenceSchema,
 });
 
 export const InstanceProfileRefSchema = z.object({
@@ -80,7 +71,7 @@ export const ObservationEnvelopeSchema = z.object({
   contractVersion: z.literal(DOMAIN_CONTRACT_VERSION),
   observationId: z.string().uuid(),
   observedAt: z.string().min(1),
-  subject: z.union([CreatorIdentitySchema, DiscoveryIdentitySchema]),
+  subject: AccountObservationSubjectSchema,
   providerBinding: ProviderBindingRefSchema,
   evidence: z.array(EvidenceRefSchema),
   unavailableFields: z.array(UnavailableFieldSchema),
