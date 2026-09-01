@@ -1,0 +1,19 @@
+{
+  "name": "@flair-agency/live-agency-operations-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Source-neutral, read-only MCP tools for live agency operations",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@live-agency-skills/source-provider-api": "1.6.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "zod": "4.5.4"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
