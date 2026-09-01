@@ -30,7 +30,7 @@ export const ProviderBindingRefSchema = z.object({
 
 export const PlatformAccountReferenceSchema = z.object({
   platform: z.literal("tiktok"),
-  accountKey: z.string().min(1),
+  username: z.string().min(1),
   platformUserId: z.string().min(1).nullable().optional(),
 });
 

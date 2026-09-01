@@ -12,17 +12,17 @@ import {
   sha256CanonicalJson,
 } from "../src/domain-contracts.mjs";
 
-test("account observation reference does not assert a Flair person or creator identity", () => {
+test("account observation reference does not assert a Flair Actor or creator identity", () => {
   const subject = AccountObservationSubjectSchema.parse({
     version: 2,
     accountReference: {
       platform: "tiktok",
-      accountKey: "synthetic.creator",
+      username: "synthetic.creator",
       platformUserId: "synthetic-platform-id",
     },
   });
 
-  assert.equal(subject.accountReference.accountKey, "synthetic.creator");
+  assert.equal(subject.accountReference.username, "synthetic.creator");
   assert.equal("creatorId" in subject, false);
   assert.equal("personId" in subject, false);
   assert.equal("platformAccountId" in subject, false);
@@ -84,7 +84,7 @@ test("observation evidence and unavailable values have source-neutral envelopes"
     observedAt: "2026-09-02T00:00:00.000Z",
     subject: {
       version: 2,
-      accountReference: { platform: "tiktok", accountKey: "synthetic.creator" },
+      accountReference: { platform: "tiktok", username: "synthetic.creator" },
     },
     providerBinding: {
       providerFamily: "tiktok",
