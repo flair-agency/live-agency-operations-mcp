@@ -1,5 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
+import { READ_ONLY_INTERACTIVE, READ_ONLY_LOCAL, safeTool } from "./mcp-support.mjs";
+
 import {
   ActivityObservationRequestSchema,
   ActivitySnapshotSchema,
@@ -22,54 +24,10 @@ When observe_creator_activity returns interaction_required, use the returned pri
 
 When observe_creator_invitation_status returns interaction_required, use the returned private instructions only with the user-selected authenticated browser session. Preserve the returned targetManifest and sourceContext, collect exactly one observation per requested account, then call validate_creator_invitation_status_observations. Stop instead of guessing when authentication, account, schema, result coverage, or provider selection is ambiguous.`;
 
-function success(value) {
-  return {
-    content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
-    structuredContent: value,
-  };
-}
-
-function errorCode(error) {
-  if (typeof error?.code === "string" && error.code) return error.code;
-  if (error instanceof TypeError) return "INVALID_INPUT_OR_SOURCE";
-  return "MCP_OPERATION_FAILED";
-}
-
-function failure(error) {
-  const value = {
-    status: "error",
-    error: {
-      code: errorCode(error),
-      message: error instanceof Error ? error.message : "Unknown MCP operation failure",
-    },
-  };
-  return {
-    isError: true,
-    content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
-  };
-}
-
-function safeTool(handler) {
-  return async (input) => {
-    try {
-      return success(await handler(input));
-    } catch (error) {
-      return failure(error);
-    }
-  };
-}
-
-const READ_ONLY_LOCAL = {
-  readOnlyHint: true,
-  destructiveHint: false,
-  idempotentHint: true,
-  openWorldHint: false,
-};
-
 export function createMcpServer({ runtime }) {
   if (!runtime) throw new TypeError("runtime is required");
   const server = new McpServer(
-    { name: "live-agency-operations", version: "0.2.0" },
+    { name: "live-agency-operations", version: "0.3.0" },
     { instructions: SERVER_INSTRUCTIONS },
   );
 
@@ -94,12 +52,7 @@ export function createMcpServer({ runtime }) {
         "Resolve an installed read-only provider for an exact activity month and complete or selected account scope. A browser-based provider returns private interaction instructions without exposing source-specific knowledge in this MCP.",
       inputSchema: { request: ActivityObservationRequestSchema },
       outputSchema: ObserveCreatorActivityOutputSchema,
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: false,
-        openWorldHint: true,
-      },
+      annotations: READ_ONLY_INTERACTIVE,
     },
     safeTool((input) => runtime.observeCreatorActivity(input)),
   );
@@ -129,12 +82,7 @@ export function createMcpServer({ runtime }) {
         "Resolve the installed read-only invitation-status provider for one complete target manifest. A browser-based provider returns interaction_required with private instructions; this tool never clicks invite, follow, message, or any relationship-changing control.",
       inputSchema: { targetManifest: TargetManifestSchema },
       outputSchema: ObserveInvitationStatusOutputSchema,
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: false,
-        openWorldHint: true,
-      },
+      annotations: READ_ONLY_INTERACTIVE,
     },
     safeTool((input) => runtime.observeCreatorInvitationStatus(input)),
   );

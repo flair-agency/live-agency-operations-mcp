@@ -1,11 +1,13 @@
 {
   "name": "@flair-agency/live-agency-operations-mcp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Source-neutral, read-only MCP tools for live agency operations",
   "type": "module",
   "scripts": {
     "start": "node src/server.mjs",
+    "start:scouting": "node src/creator-scouting-server.mjs",
+    "start:management": "node src/creator-management-server.mjs",
     "test": "node --test"
   },
   "dependencies": {

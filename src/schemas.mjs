@@ -2,6 +2,7 @@ import * as z from "zod/v4";
 
 export const SourceContextSchema = z.object({
   capability: z.string().min(1),
+  providerFamily: z.string().min(1).nullable().optional(),
   providerPackage: z.string().min(1),
   providerVersion: z.string().min(1),
   bindingId: z.string().min(1),

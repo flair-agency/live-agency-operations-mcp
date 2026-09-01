@@ -22,6 +22,37 @@ Direct messages, invitations, follows, relationship changes, and writes to Lark
 or other destinations are outside this server's scope. Credentials and real data
 must not be stored in the repository.
 
+## Version 2 domain processes
+
+The mixed `live-agency-operations` process remains available as a transitional
+compatibility surface. Version 2 Skills use two separately launched read-only
+domain processes that share the same provider-resolution runtime:
+
+- Creator Scouting exposes `observe_creator_invitation_eligibility` and
+  `validate_creator_invitation_eligibility_observations`.
+- Creator Management exposes `read_creator_activity`,
+  `observe_creator_activity`, and `validate_creator_activity_observations`.
+
+Each domain result includes a content-bound audit context with contract version,
+domain, read authority, tool name, request identity and hash, target and observed
+counts, and the resolved Provider Binding. Lark writes and BackStage
+relationship-changing actions are not available in either process. Shared v2
+schemas also define creator and discovery identity, observation evidence,
+unavailable values, write intent, approval, and readback results; write tools are
+not exposed in this release.
+
+The domain entrypoints load exact capability/input-to-Binding routes from
+`config/v2-provider-binding-profiles.json` in the composition root. Missing,
+duplicate, mismatched, or uninstalled profiles fail closed. Set
+`LIVE_AGENCY_PROVIDER_BINDING_PROFILES_PATH` only when the compatible private
+composition root stores that configuration elsewhere.
+
+`instance-profile-resolver.mjs` defines the corresponding fail-closed Lark
+Instance Profile contract. Each private profile binds one profile ID to one
+domain, tenant, authority, Base ID, credential reference, schema fingerprint,
+knowledge version, and set of immutable table IDs. Production Instance Profile
+documents and credentials are deliberately not stored in this repository.
+
 This MCP is maintained in its own repository and is mounted at
 `mcp/live-agency-operations` by the private `live-agency-provider-runtime`
 composition root. The composition root supplies the source-provider API and
@@ -36,6 +67,13 @@ root:
 npm run mcp:start
 ```
 
+Start the v2 domain processes independently:
+
+```sh
+npm run mcp:start:scouting
+npm run mcp:start:management
+```
+
 The following is an example Codex project configuration. Replace
 `/absolute/path/to/...` with the actual absolute path to the composition root.
 
@@ -43,6 +81,20 @@ The following is an example Codex project configuration. Replace
 [mcp_servers.live-agency-operations]
 command = "node"
 args = ["/absolute/path/to/live-agency-provider-runtime/mcp/live-agency-operations/src/server.mjs"]
+cwd = "/absolute/path/to/live-agency-provider-runtime"
+```
+
+The v2 domain configuration uses separate entries:
+
+```toml
+[mcp_servers.creator-scouting]
+command = "node"
+args = ["/absolute/path/to/live-agency-provider-runtime/mcp/live-agency-operations/src/creator-scouting-server.mjs"]
+cwd = "/absolute/path/to/live-agency-provider-runtime"
+
+[mcp_servers.creator-management]
+command = "node"
+args = ["/absolute/path/to/live-agency-provider-runtime/mcp/live-agency-operations/src/creator-management-server.mjs"]
 cwd = "/absolute/path/to/live-agency-provider-runtime"
 ```
 
@@ -58,5 +110,7 @@ Install the composition-root workspaces, then run:
 npm run test:mcp
 ```
 
-After adding the configuration, restart Codex and confirm that all five tools
-appear in the MCP tool list.
+After adding the configuration, restart Codex and confirm that Creator Scouting
+advertises two tools and Creator Management advertises three tools. The legacy
+mixed process continues to advertise its original five-tool compatibility
+surface.

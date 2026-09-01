@@ -11,6 +11,8 @@ import {
   validateInvitationObservations,
 } from "@live-agency-skills/source-provider-api";
 
+import { createProfiledProviderResolver } from "./provider-binding-resolver.mjs";
+
 export const XLSX_INPUT_KIND =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 export const ACTIVITY_OBSERVATION_INPUT_KIND =
@@ -167,6 +169,9 @@ export function completeActivityObservationRequest(value, now = () => new Date()
 function sourceContext(provider, capability) {
   return {
     capability,
+    ...(provider.manifest?.providerFamily
+      ? { providerFamily: provider.manifest.providerFamily }
+      : {}),
     providerPackage: provider.packageName,
     providerVersion: provider.packageVersion,
     bindingId: provider.bindingId,
@@ -303,6 +308,7 @@ const defaultProviderApi = {
 export function createOperationsRuntime({
   rootDir = process.cwd(),
   providerApi = defaultProviderApi,
+  bindingProfile,
   now = () => new Date(),
 } = {}) {
   let providersPromise;
@@ -311,8 +317,15 @@ export function createOperationsRuntime({
     return providersPromise;
   };
 
+  const profiledResolve = bindingProfile
+    ? createProfiledProviderResolver({
+        profile: bindingProfile,
+        resolveProvider: providerApi.resolveProvider,
+      })
+    : providerApi.resolveProvider;
+
   async function selectProvider(capability, request, unattended) {
-    return providerApi.resolveProvider({
+    return profiledResolve({
       providers: await providers(),
       capability,
       request,
