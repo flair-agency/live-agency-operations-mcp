@@ -4,11 +4,15 @@ import test from "node:test";
 import {
   ACTIVITY_CAPABILITY,
   INVITATION_CAPABILITY,
+  LIVE_HISTORY_OBSERVATION_CAPABILITY,
+  PROFILE_OBSERVATION_CAPABILITY,
 } from "@live-agency-skills/source-provider-api";
 
 import {
   completeActivityObservationRequest,
   createOperationsRuntime,
+  matchCreatorLiveHistoryObservations,
+  matchCreatorProfileObservations,
   matchCreatorActivityObservation,
   matchInvitationObservations,
 } from "../src/runtime.mjs";
@@ -303,5 +307,144 @@ test("matchInvitationObservations rejects incomplete coverage and attaches recor
         manifest,
       ),
     /unrequested account: not_requested/,
+  );
+});
+
+test("Scouting profile and LIVE observation routes return only bounded instructions", async () => {
+  for (const [method, capability, expectedInputKind] of [
+    [
+      "observeCreatorProfiles",
+      PROFILE_OBSERVATION_CAPABILITY,
+      "application/vnd.live-agency.creator-profile-targets+json",
+    ],
+    [
+      "observeCreatorLiveHistory",
+      LIVE_HISTORY_OBSERVATION_CAPABILITY,
+      "application/vnd.live-agency.creator-live-history-targets+json",
+    ],
+  ]) {
+    const provider = {
+      packageName: "@synthetic/tiktok-provider",
+      packageVersion: "2.0.0",
+      bindingId: `synthetic-${method}`,
+      knowledgeVersion: "synthetic/1",
+      executionKind: "instructions",
+      instructions: "Observe only in the selected session.",
+    };
+    const api = providerApi(provider, null);
+    let resolved;
+    api.resolveProvider = async (input) => {
+      resolved = input;
+      return provider;
+    };
+    api.readFromProvider = async () => {
+      throw new Error("interactive instructions must not be executed");
+    };
+    const runtime = createOperationsRuntime({
+      rootDir: "/synthetic/runtime",
+      providerApi: api,
+      now: () => new Date("2026-09-02T03:00:00.000Z"),
+    });
+    const result = await runtime[method]({
+      targetManifest: {
+        version: 1,
+        targetMode: "selected",
+        rowCount: 1,
+        rows: [{ creatorRecordId: "rec_synthetic", accountKey: "@Synthetic.Creator" }],
+      },
+    });
+    assert.equal(result.status, "interaction_required");
+    assert.equal(result.sourceContext.capability, capability);
+    assert.equal(resolved.capability, capability);
+    assert.equal(resolved.request.inputKind, expectedInputKind);
+    assert.equal(resolved.unattended, false);
+  }
+});
+
+test("profile and LIVE validation preserve the exact target record association", () => {
+  const manifest = {
+    version: 1,
+    generatedAt: "2026-09-02T03:00:00.000Z",
+    targetMode: "selected",
+    rowCount: 1,
+    rows: [{ creatorRecordId: "rec_synthetic", accountKey: "@Synthetic.Creator" }],
+  };
+  const profile = {
+    observedAt: "2026-09-02T03:05:00.000Z",
+    rowCount: 1,
+    creators: [
+      {
+        creatorRecordId: "rec_synthetic",
+        accountKey: "SYNTHETIC.CREATOR",
+        observedAt: "2026-09-02T03:04:00.000Z",
+        profile: {
+          followerCount: 100,
+          followerStatus: "observed_exact",
+          recentPostCount30d: 1,
+          recentPostStatus: "observed_exact",
+          latestPostAt: "2026-09-01T00:00:00.000Z",
+          latestPostStatus: "observed_exact",
+          nickname: "Synthetic",
+          nicknameStatus: "observed_exact",
+          avatar: null,
+          avatarStatus: "not_available",
+          featureObservationData: null,
+          featureObservationStatus: "not_available",
+        },
+      },
+    ],
+  };
+  const live = {
+    observedAt: "2026-09-02T03:05:00.000Z",
+    rowCount: 1,
+    creators: [
+      {
+        creatorRecordId: "rec_synthetic",
+        accountKey: "synthetic.creator",
+        observedAt: "2026-09-02T03:04:00.000Z",
+        fanClubCount: 10,
+        fanClubStatus: "observed_exact",
+        liveScan: { mode: "incremental", stopReason: "known-anchor", knownMatchCount: 1 },
+        lives: [
+          {
+            startAt: "2026-09-01T00:00:00.000Z",
+            endAt: "2026-09-01T01:00:00.000Z",
+            likeCount: 100,
+            likeStatus: "observed_exact",
+          },
+        ],
+      },
+    ],
+  };
+
+  assert.equal(
+    matchCreatorProfileObservations(profile, manifest).creators[0].accountKey,
+    "synthetic.creator",
+  );
+  assert.equal(
+    matchCreatorLiveHistoryObservations(live, manifest).creators[0].creatorRecordId,
+    "rec_synthetic",
+  );
+  assert.throws(
+    () =>
+      matchCreatorProfileObservations(
+        {
+          ...profile,
+          creators: [{ ...profile.creators[0], creatorRecordId: "rec_other" }],
+        },
+        manifest,
+      ),
+    /creatorRecordId does not match target/,
+  );
+  assert.throws(
+    () =>
+      matchCreatorLiveHistoryObservations(
+        {
+          ...live,
+          creators: [{ ...live.creators[0], accountKey: "not_requested" }],
+        },
+        manifest,
+      ),
+    /unrequested account/,
   );
 });

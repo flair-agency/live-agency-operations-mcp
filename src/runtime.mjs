@@ -4,11 +4,15 @@ import path from "node:path";
 import {
   ACTIVITY_CAPABILITY,
   INVITATION_CAPABILITY,
+  LIVE_HISTORY_OBSERVATION_CAPABILITY,
+  PROFILE_OBSERVATION_CAPABILITY,
   discoverProviders,
   readFromProvider,
   resolveProvider,
   validateActivitySnapshot,
   validateInvitationObservations,
+  validateLiveHistoryObservations,
+  validateProfileObservations,
 } from "@live-agency-skills/source-provider-api";
 
 import { createProfiledProviderResolver } from "./provider-binding-resolver.mjs";
@@ -19,6 +23,10 @@ export const ACTIVITY_OBSERVATION_INPUT_KIND =
   "application/vnd.live-agency.creator-activity-observation-request+json";
 export const INVITATION_TARGET_INPUT_KIND =
   "application/vnd.live-agency.creator-invitation-targets+json";
+export const PROFILE_TARGET_INPUT_KIND =
+  "application/vnd.live-agency.creator-profile-targets+json";
+export const LIVE_HISTORY_TARGET_INPUT_KIND =
+  "application/vnd.live-agency.creator-live-history-targets+json";
 
 function sha256Json(value) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -260,6 +268,58 @@ export function matchInvitationObservations(observationsValue, manifestValue) {
   return { ...observations, creators };
 }
 
+function matchTargetedObservations(observationsValue, manifestValue, validate, label) {
+  const observations = validate(observationsValue);
+  const manifest = completeTargetManifest(manifestValue);
+  const targetsByAccount = new Map(
+    manifest.rows.map((row) => [normalizeAccountKey(row.accountKey), row]),
+  );
+  const seenAccounts = new Set();
+  const seenRecords = new Set();
+  const creators = observations.creators.map((creator) => {
+    const accountKey = normalizeAccountKey(creator.accountKey);
+    if (!accountKey || seenAccounts.has(accountKey)) {
+      throw new TypeError(`${label} accountKey is invalid or duplicated: ${creator.accountKey}`);
+    }
+    seenAccounts.add(accountKey);
+    const target = targetsByAccount.get(accountKey);
+    if (!target) throw new TypeError(`${label} contains an unrequested account: ${accountKey}`);
+    if (creator.creatorRecordId !== target.creatorRecordId) {
+      throw new TypeError(`${label} creatorRecordId does not match target: ${accountKey}`);
+    }
+    if (seenRecords.has(creator.creatorRecordId)) {
+      throw new TypeError(`${label} creatorRecordId is duplicated: ${creator.creatorRecordId}`);
+    }
+    seenRecords.add(creator.creatorRecordId);
+    return { ...creator, accountKey };
+  });
+  const missing = [...targetsByAccount.keys()].filter(
+    (accountKey) => !seenAccounts.has(accountKey),
+  );
+  if (missing.length > 0) {
+    throw new TypeError(`${label} is missing requested accounts: ${missing.join(", ")}`);
+  }
+  return { ...observations, creators };
+}
+
+export function matchCreatorProfileObservations(observationsValue, manifestValue) {
+  return matchTargetedObservations(
+    observationsValue,
+    manifestValue,
+    validateProfileObservations,
+    "profile observations",
+  );
+}
+
+export function matchCreatorLiveHistoryObservations(observationsValue, manifestValue) {
+  return matchTargetedObservations(
+    observationsValue,
+    manifestValue,
+    validateLiveHistoryObservations,
+    "LIVE-history observations",
+  );
+}
+
 export function matchCreatorActivityObservation(snapshotValue, requestValue) {
   const snapshot = validateActivitySnapshot(snapshotValue);
   const request = completeActivityObservationRequest(requestValue);
@@ -431,6 +491,94 @@ export function createOperationsRuntime({
         targetManifest: manifest,
         sourceContext: { ...context },
         observations: matchInvitationObservations(observations, manifest),
+      };
+    },
+
+    async observeCreatorProfiles({ targetManifest }) {
+      const manifest = completeTargetManifest(targetManifest, now);
+      const request = { inputKind: PROFILE_TARGET_INPUT_KIND, targetManifest: manifest };
+      const provider = await selectProvider(PROFILE_OBSERVATION_CAPABILITY, request, false);
+      const context = sourceContext(provider, PROFILE_OBSERVATION_CAPABILITY);
+      if (provider.executionKind === "instructions") {
+        if (typeof provider.instructions !== "string" || !provider.instructions.trim()) {
+          throw new TypeError("interactive provider instructions are missing");
+        }
+        return {
+          status: "interaction_required",
+          targetManifest: manifest,
+          sourceContext: context,
+          instructions: provider.instructions,
+        };
+      }
+      return {
+        status: "completed",
+        targetManifest: manifest,
+        sourceContext: context,
+        observations: matchCreatorProfileObservations(
+          await providerApi.readFromProvider(provider, request),
+          manifest,
+        ),
+      };
+    },
+
+    validateCreatorProfileObservations({
+      targetManifest,
+      sourceContext: context,
+      observations,
+    }) {
+      const manifest = completeTargetManifest(targetManifest, now);
+      assertSourceContext(context, PROFILE_OBSERVATION_CAPABILITY);
+      return {
+        status: "validated",
+        targetManifest: manifest,
+        sourceContext: { ...context },
+        observations: matchCreatorProfileObservations(observations, manifest),
+      };
+    },
+
+    async observeCreatorLiveHistory({ targetManifest }) {
+      const manifest = completeTargetManifest(targetManifest, now);
+      const request = { inputKind: LIVE_HISTORY_TARGET_INPUT_KIND, targetManifest: manifest };
+      const provider = await selectProvider(
+        LIVE_HISTORY_OBSERVATION_CAPABILITY,
+        request,
+        false,
+      );
+      const context = sourceContext(provider, LIVE_HISTORY_OBSERVATION_CAPABILITY);
+      if (provider.executionKind === "instructions") {
+        if (typeof provider.instructions !== "string" || !provider.instructions.trim()) {
+          throw new TypeError("interactive provider instructions are missing");
+        }
+        return {
+          status: "interaction_required",
+          targetManifest: manifest,
+          sourceContext: context,
+          instructions: provider.instructions,
+        };
+      }
+      return {
+        status: "completed",
+        targetManifest: manifest,
+        sourceContext: context,
+        observations: matchCreatorLiveHistoryObservations(
+          await providerApi.readFromProvider(provider, request),
+          manifest,
+        ),
+      };
+    },
+
+    validateCreatorLiveHistoryObservations({
+      targetManifest,
+      sourceContext: context,
+      observations,
+    }) {
+      const manifest = completeTargetManifest(targetManifest, now);
+      assertSourceContext(context, LIVE_HISTORY_OBSERVATION_CAPABILITY);
+      return {
+        status: "validated",
+        targetManifest: manifest,
+        sourceContext: { ...context },
+        observations: matchCreatorLiveHistoryObservations(observations, manifest),
       };
     },
   };

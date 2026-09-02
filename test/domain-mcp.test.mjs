@@ -60,6 +60,10 @@ test("Creator Scouting is a separate read-only MCP process", async (t) => {
   assert.deepEqual(
     listed.tools.map((tool) => tool.name),
     [
+      "observe_creator_profiles",
+      "validate_creator_profile_observations",
+      "observe_creator_live_history",
+      "validate_creator_live_history_observations",
       "observe_creator_invitation_eligibility",
       "validate_creator_invitation_eligibility_observations",
     ],

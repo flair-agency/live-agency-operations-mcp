@@ -105,6 +105,103 @@ export const MatchedInvitationObservationsSchema = InvitationObservationsSchema.
   ),
 });
 
+const ObservationStatusSchema = z.enum([
+  "observed_exact",
+  "observed_rounded",
+  "not_available",
+  "no_history",
+  "account_mismatch",
+  "authentication_required",
+  "blocked",
+  "schema_changed",
+]);
+
+const ProfileObservationSchema = z.object({
+  creatorRecordId: z.string().min(1),
+  accountKey: z.string().min(1),
+  observedAt: z.string().min(1),
+  profile: z.object({
+    followerCount: z.number().int().nonnegative().nullable(),
+    followerStatus: ObservationStatusSchema,
+    followerDisplay: z.string().min(1).optional(),
+    recentPostCount30d: z.number().int().nonnegative().nullable(),
+    recentPostStatus: ObservationStatusSchema,
+    latestPostAt: z.string().min(1).nullable(),
+    latestPostStatus: ObservationStatusSchema,
+    nickname: z.string().min(1).nullable(),
+    nicknameStatus: ObservationStatusSchema,
+    avatar: AvatarSchema.nullable(),
+    avatarStatus: ObservationStatusSchema,
+    featureObservationData: z.record(z.string(), z.unknown()).nullable(),
+    featureObservationStatus: ObservationStatusSchema,
+  }),
+});
+
+export const ProfileObservationsSchema = z.object({
+  observedAt: z.string().min(1),
+  rowCount: z.number().int().nonnegative(),
+  creators: z.array(ProfileObservationSchema),
+});
+
+const LiveHistoryObservationSchema = z.object({
+  creatorRecordId: z.string().min(1),
+  accountKey: z.string().min(1),
+  observedAt: z.string().min(1),
+  fanClubCount: z.number().int().nonnegative().nullable(),
+  fanClubStatus: ObservationStatusSchema,
+  fanClubDisplay: z.string().min(1).optional(),
+  liveScan: z.object({
+    mode: z.enum(["incremental", "reconcile-window", "baseline-full"]),
+    stopReason: z.enum(["known-anchor", "cutoff", "history-end", "no-history", "unavailable"]),
+    knownMatchCount: z.number().int().nonnegative(),
+  }),
+  lives: z.array(
+    z.object({
+      startAt: z.string().min(1),
+      endAt: z.string().min(1),
+      likeCount: z.number().int().nonnegative().nullable(),
+      likeStatus: ObservationStatusSchema,
+      likeDisplay: z.string().min(1).optional(),
+    }),
+  ),
+});
+
+export const LiveHistoryObservationsSchema = z.object({
+  observedAt: z.string().min(1),
+  rowCount: z.number().int().nonnegative(),
+  creators: z.array(LiveHistoryObservationSchema),
+});
+
+export const ObserveCreatorProfileOutputSchema = z.object({
+  status: z.enum(["interaction_required", "completed"]),
+  targetManifest: CompleteTargetManifestSchema,
+  sourceContext: SourceContextSchema,
+  instructions: z.string().min(1).optional(),
+  observations: ProfileObservationsSchema.optional(),
+});
+
+export const ValidateCreatorProfileOutputSchema = z.object({
+  status: z.literal("validated"),
+  targetManifest: CompleteTargetManifestSchema,
+  sourceContext: SourceContextSchema,
+  observations: ProfileObservationsSchema,
+});
+
+export const ObserveCreatorLiveHistoryOutputSchema = z.object({
+  status: z.enum(["interaction_required", "completed"]),
+  targetManifest: CompleteTargetManifestSchema,
+  sourceContext: SourceContextSchema,
+  instructions: z.string().min(1).optional(),
+  observations: LiveHistoryObservationsSchema.optional(),
+});
+
+export const ValidateCreatorLiveHistoryOutputSchema = z.object({
+  status: z.literal("validated"),
+  targetManifest: CompleteTargetManifestSchema,
+  sourceContext: SourceContextSchema,
+  observations: LiveHistoryObservationsSchema,
+});
+
 export const ReadCreatorActivityOutputSchema = z.object({
   status: z.literal("ok"),
   snapshot: ActivitySnapshotSchema,

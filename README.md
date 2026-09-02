@@ -28,8 +28,8 @@ The mixed `live-agency-operations` process remains available as a transitional
 compatibility surface. Version 2 Skills use two separately launched read-only
 domain processes that share the same provider-resolution runtime:
 
-- Creator Scouting exposes `observe_creator_invitation_eligibility` and
-  `validate_creator_invitation_eligibility_observations`.
+- Creator Scouting exposes paired observe/validate tools for public profiles,
+  LIVE history, and invitation eligibility.
 - Creator Management exposes `read_creator_activity`,
   `observe_creator_activity`, and `validate_creator_activity_observations`.
 
@@ -121,6 +121,6 @@ npm run test:mcp
 ```
 
 After adding the configuration, restart Codex and confirm that Creator Scouting
-advertises two tools and Creator Management advertises three tools. The legacy
+advertises six tools and Creator Management advertises three tools. The legacy
 mixed process continues to advertise its original five-tool compatibility
 surface.

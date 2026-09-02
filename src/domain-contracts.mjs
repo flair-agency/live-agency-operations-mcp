@@ -4,9 +4,13 @@ import * as z from "zod/v4";
 
 import {
   ObserveCreatorActivityOutputSchema,
+  ObserveCreatorLiveHistoryOutputSchema,
+  ObserveCreatorProfileOutputSchema,
   ObserveInvitationStatusOutputSchema,
   ReadCreatorActivityOutputSchema,
   ValidateCreatorActivityOutputSchema,
+  ValidateCreatorLiveHistoryOutputSchema,
+  ValidateCreatorProfileOutputSchema,
   ValidateInvitationStatusOutputSchema,
 } from "./schemas.mjs";
 
@@ -218,6 +222,18 @@ export const ScoutingObserveInvitationEligibilityOutputSchema = withAudit(
 );
 export const ScoutingValidateInvitationEligibilityOutputSchema = withAudit(
   ValidateInvitationStatusOutputSchema,
+);
+export const ScoutingObserveCreatorProfileOutputSchema = withAudit(
+  ObserveCreatorProfileOutputSchema,
+);
+export const ScoutingValidateCreatorProfileOutputSchema = withAudit(
+  ValidateCreatorProfileOutputSchema,
+);
+export const ScoutingObserveCreatorLiveHistoryOutputSchema = withAudit(
+  ObserveCreatorLiveHistoryOutputSchema,
+);
+export const ScoutingValidateCreatorLiveHistoryOutputSchema = withAudit(
+  ValidateCreatorLiveHistoryOutputSchema,
 );
 export const ManagementReadCreatorActivityOutputSchema = withAudit(
   ReadCreatorActivityOutputSchema,
