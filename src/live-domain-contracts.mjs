@@ -61,6 +61,18 @@ function isCalendarDate(value) {
   );
 }
 
+function calendarDateInTokyo(value) {
+  const date = new Date(Date.parse(value));
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const part = (type) => parts.find((entry) => entry.type === type)?.value;
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
 const IsoDateTimeSchema = z.string().refine(isIsoDateTime, "must be a timezone-aware ISO date-time");
 const CalendarDateSchema = z.string().refine(isCalendarDate, "must be a calendar date");
 
@@ -257,10 +269,18 @@ export const LiveSessionReconciliationSchema = z
 const DailySessionContributionSchema = z
   .object({
     sessionKey: z.string().min(1),
-    liveMinutes: z.number().int().nonnegative(),
+    sessionStartAt: IsoDateTimeSchema,
+    sessionEndAt: IsoDateTimeSchema,
     likeCount: z.number().int().nonnegative().nullable(),
   })
-  .strict();
+  .strict()
+  .superRefine((contribution, context) => {
+    const start = Date.parse(contribution.sessionStartAt);
+    const end = Date.parse(contribution.sessionEndAt);
+    if (end < start || end - start > 24 * 60 * 60 * 1000) {
+      context.addIssue({ code: "custom", message: "daily LIVE contribution duration is invalid" });
+    }
+  });
 
 export const DailyLiveAggregateSchema = z
   .object({
@@ -268,10 +288,12 @@ export const DailyLiveAggregateSchema = z
     accountReference: PlatformAccountReferenceSchema,
     localDate: CalendarDateSchema,
     timeZone: z.literal("Asia/Tokyo"),
+    aggregationBasis: z.literal("session-start-date"),
+    crossMidnightAllocation: z.literal("full-session-to-start-date"),
     policyVersion: z.string().min(1),
     calculatedAt: IsoDateTimeSchema,
     sessionContributions: z.array(DailySessionContributionSchema),
-    totalLiveMinutes: z.number().int().nonnegative(),
+    totalObservedLiveMinutes: z.number().nonnegative(),
     totalLikeCount: z.number().int().nonnegative().nullable(),
     effectiveLiveDay: z.boolean(),
   })
@@ -283,13 +305,23 @@ export const DailyLiveAggregateSchema = z
         context.addIssue({ code: "custom", message: "daily aggregate session key is duplicated" });
       }
       sessionKeys.add(contribution.sessionKey);
+      if (calendarDateInTokyo(contribution.sessionStartAt) !== aggregate.localDate) {
+        context.addIssue({
+          code: "custom",
+          message: "daily LIVE contribution must use the JST session start date",
+        });
+      }
     }
     const minutes = aggregate.sessionContributions.reduce(
-      (sum, contribution) => sum + contribution.liveMinutes,
+      (sum, contribution) =>
+        sum + (Date.parse(contribution.sessionEndAt) - Date.parse(contribution.sessionStartAt)) / 60000,
       0,
     );
-    if (minutes !== aggregate.totalLiveMinutes) {
-      context.addIssue({ code: "custom", message: "daily LIVE minutes do not match contributions" });
+    if (Math.abs(minutes - aggregate.totalObservedLiveMinutes) > 1e-9) {
+      context.addIssue({
+        code: "custom",
+        message: "daily observed LIVE minutes do not match session elapsed time",
+      });
     }
     const likes = aggregate.sessionContributions.map((contribution) => contribution.likeCount);
     const expectedLikes = likes.some((value) => value === null)
@@ -297,5 +329,11 @@ export const DailyLiveAggregateSchema = z
       : likes.reduce((sum, value) => sum + value, 0);
     if (expectedLikes !== aggregate.totalLikeCount) {
       context.addIssue({ code: "custom", message: "daily LIVE likes do not match contributions" });
+    }
+    if (aggregate.effectiveLiveDay !== (aggregate.sessionContributions.length > 0)) {
+      context.addIssue({
+        code: "custom",
+        message: "effective LIVE day does not match session contributions",
+      });
     }
   });

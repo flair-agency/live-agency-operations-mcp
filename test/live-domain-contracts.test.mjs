@@ -149,17 +149,29 @@ test("daily aggregates accept canonical session contributions once and verify to
     accountReference,
     localDate: "2026-09-01",
     timeZone: "Asia/Tokyo",
+    aggregationBasis: "session-start-date",
+    crossMidnightAllocation: "full-session-to-start-date",
     policyVersion: "synthetic/1",
     calculatedAt: "2026-09-02T01:00:00.000Z",
     sessionContributions: [
-      { sessionKey: "canonical-session-a", liveMinutes: 60, likeCount: 100 },
-      { sessionKey: "canonical-session-b", liveMinutes: 30, likeCount: 50 },
+      {
+        sessionKey: "canonical-session-a",
+        sessionStartAt: "2026-09-01T12:00:00.000Z",
+        sessionEndAt: "2026-09-01T13:00:00.000Z",
+        likeCount: 100,
+      },
+      {
+        sessionKey: "canonical-session-b",
+        sessionStartAt: "2026-09-01T14:00:00.000Z",
+        sessionEndAt: "2026-09-01T14:30:00.000Z",
+        likeCount: 50,
+      },
     ],
-    totalLiveMinutes: 90,
+    totalObservedLiveMinutes: 90,
     totalLikeCount: 150,
     effectiveLiveDay: true,
   };
-  assert.equal(DailyLiveAggregateSchema.parse(aggregate).totalLiveMinutes, 90);
+  assert.equal(DailyLiveAggregateSchema.parse(aggregate).totalObservedLiveMinutes, 90);
   assert.throws(
     () =>
       DailyLiveAggregateSchema.parse({
@@ -168,14 +180,56 @@ test("daily aggregates accept canonical session contributions once and verify to
           aggregate.sessionContributions[0],
           { ...aggregate.sessionContributions[0] },
         ],
-        totalLiveMinutes: 120,
+        totalObservedLiveMinutes: 120,
         totalLikeCount: 200,
       }),
     /session key is duplicated/,
   );
   assert.throws(
-    () => DailyLiveAggregateSchema.parse({ ...aggregate, totalLiveMinutes: 91 }),
-    /minutes do not match/,
+    () => DailyLiveAggregateSchema.parse({ ...aggregate, totalObservedLiveMinutes: 91 }),
+    /minutes do not match session elapsed time/,
+  );
+  assert.throws(
+    () =>
+      DailyLiveAggregateSchema.parse({
+        ...aggregate,
+        sessionContributions: [
+          {
+            sessionKey: "cross-midnight-session",
+            sessionStartAt: "2026-09-02T14:30:00.000Z",
+            sessionEndAt: "2026-09-02T16:00:00.000Z",
+            likeCount: 100,
+          },
+        ],
+        totalObservedLiveMinutes: 90,
+        totalLikeCount: 100,
+      }),
+    /JST session start date/,
   );
   assert.equal("observationId" in DailyLiveAggregateSchema.parse(aggregate), false);
+});
+
+test("cross-midnight LIVE duration is attributed entirely to the JST session start date", () => {
+  const aggregate = {
+    contractVersion: 2,
+    accountReference,
+    localDate: "2026-09-01",
+    timeZone: "Asia/Tokyo",
+    aggregationBasis: "session-start-date",
+    crossMidnightAllocation: "full-session-to-start-date",
+    policyVersion: "synthetic/1",
+    calculatedAt: "2026-09-02T16:30:00.000Z",
+    sessionContributions: [
+      {
+        sessionKey: "cross-midnight-session",
+        sessionStartAt: "2026-09-01T14:30:00.000Z",
+        sessionEndAt: "2026-09-01T16:00:00.000Z",
+        likeCount: 100,
+      },
+    ],
+    totalObservedLiveMinutes: 90,
+    totalLikeCount: 100,
+    effectiveLiveDay: true,
+  };
+  assert.equal(DailyLiveAggregateSchema.parse(aggregate).localDate, "2026-09-01");
 });

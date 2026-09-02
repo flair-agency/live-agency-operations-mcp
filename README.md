@@ -48,8 +48,12 @@ identity model is under review.
 reconciled canonical sessions, and JST daily aggregates as separate contracts.
 Each observed session must be assigned exactly once to a canonical session or a
 review quarantine. Multiple scans may support one canonical session, while a
-daily aggregate accepts each canonical session key at most once. Raw repeated
-observations therefore cannot be summed as separate LIVE sessions.
+daily aggregate accepts each canonical session key at most once. Scouting
+duration is derived from each session's start and end, and the full duration is
+assigned to the `Asia/Tokyo` date on which the session started without a
+midnight split. Raw repeated observations therefore cannot be summed as
+separate LIVE sessions. This observed Scouting duration is not the monthly
+BackStage duration used by Creator Management for incentive calculations.
 
 The domain entrypoints load exact capability/input-to-Binding routes from
 `config/v2-provider-binding-profiles.json` in the composition root. Missing,
