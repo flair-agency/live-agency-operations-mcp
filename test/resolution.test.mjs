@@ -140,6 +140,7 @@ const readInstanceProfile = {
   authority: "read",
   baseId: "synthetic-base-id",
   credentialRef: "env:SYNTHETIC_LARK_READ_CREDENTIAL",
+  serviceCapabilityProfileId: "synthetic-flair-capabilities",
   schemaVersion: "creator-management/v2",
   schemaFingerprint: "b".repeat(64),
   knowledgeVersion: "2026-09-02.1",
@@ -157,6 +158,7 @@ test("Lark Instance Profile resolution never falls back across domain or authori
     profileId: "flair-creator-management-read",
     tenant: "flair",
     authority: "read",
+    serviceCapabilityProfileId: "synthetic-flair-capabilities",
     schemaVersion: "creator-management/v2",
     knowledgeVersion: "2026-09-02.1",
   });

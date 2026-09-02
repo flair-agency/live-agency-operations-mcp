@@ -62,8 +62,11 @@ composition root stores that configuration elsewhere.
 `instance-profile-resolver.mjs` defines the corresponding fail-closed Lark
 Instance Profile contract. Each private profile binds one profile ID to one
 domain, tenant, authority, Base ID, credential reference, schema fingerprint,
-knowledge version, and set of immutable table IDs. Production Instance Profile
-documents and credentials are deliberately not stored in this repository.
+knowledge version, Lark service-capability profile reference, and set of
+immutable table IDs. The referenced Provider profile determines whether API
+access is API-first or call-minimizing for that tenant. Production Instance
+Profile documents and credentials are deliberately not stored in this
+repository.
 
 This MCP is maintained in its own repository and is mounted at
 `mcp/live-agency-operations` by the private `live-agency-provider-runtime`

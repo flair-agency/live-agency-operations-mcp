@@ -21,6 +21,7 @@ export const LarkInstanceProfileSchema = z.object({
   authority: z.enum(["read", "write"]),
   baseId: ImmutableIdSchema,
   credentialRef: z.string().min(1),
+  serviceCapabilityProfileId: z.string().min(1),
   schemaVersion: z.string().min(1),
   schemaFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
   knowledgeVersion: z.string().min(1),
@@ -72,6 +73,7 @@ export function toInstanceProfileRef(profile) {
     profileId: parsed.profileId,
     tenant: parsed.tenant,
     authority: parsed.authority,
+    serviceCapabilityProfileId: parsed.serviceCapabilityProfileId,
     schemaVersion: parsed.schemaVersion,
     knowledgeVersion: parsed.knowledgeVersion,
   };

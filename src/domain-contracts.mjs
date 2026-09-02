@@ -47,6 +47,7 @@ export const InstanceProfileRefSchema = z.object({
   profileId: z.string().min(1),
   tenant: z.enum(["creator-networks", "flair"]),
   authority: z.enum(["read", "write"]),
+  serviceCapabilityProfileId: z.string().min(1),
   schemaVersion: z.string().min(1),
   knowledgeVersion: z.string().min(1),
 });
