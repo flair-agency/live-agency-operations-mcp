@@ -77,7 +77,7 @@ export function createCreatorScoutingMcpServer({ runtime }) {
     {
       title: "Observe creator LIVE history",
       description:
-        "Resolve a read-only LIVE-history provider for an exact target manifest. Repeated scans remain observations and are not automatically counted as separate canonical sessions.",
+        "Resolve a read-only LIVE-history provider for an exact target manifest. The profile history contains completed sessions only; repeated scans are matched by exact session start time within each account.",
       inputSchema: { targetManifest: TargetManifestSchema },
       outputSchema: ScoutingObserveCreatorLiveHistoryOutputSchema,
       annotations: READ_ONLY_INTERACTIVE,
@@ -92,7 +92,7 @@ export function createCreatorScoutingMcpServer({ runtime }) {
     {
       title: "Validate creator LIVE-history observations",
       description:
-        "Validate one normalized LIVE-history observation per exact requested account. This validation does not reconcile canonical sessions or produce a daily aggregate.",
+        "Validate one normalized completed LIVE-history observation per exact requested account. This validation does not write or produce a daily aggregate.",
       inputSchema: {
         targetManifest: TargetManifestSchema,
         sourceContext: SourceContextSchema,

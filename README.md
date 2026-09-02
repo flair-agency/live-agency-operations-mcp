@@ -44,15 +44,13 @@ not exposed in this release. They deliberately do not define a Flair-owned
 Actor, candidacy, platform-account, creator, or membership ID while the v2
 identity model is under review.
 
-`live-domain-contracts.mjs` additionally keeps LIVE scan observations,
-reconciled canonical sessions, and JST daily aggregates as separate contracts.
-Each observed session must be assigned exactly once to a canonical session or a
-review quarantine. Multiple scans may support one canonical session, while a
-daily aggregate accepts each canonical session key at most once. Scouting
-duration is derived from each session's start and end, and the full duration is
-assigned to the `Asia/Tokyo` date on which the session started without a
-midnight split. Raw repeated observations therefore cannot be summed as
-separate LIVE sessions. This observed Scouting duration is not the monthly
+`live-domain-contracts.mjs` models the profile LIVE-history source as completed
+sessions only. Within one account, the exact session start timestamp is the
+matching key against existing Lark LIVE-history records. A sync plan matches
+existing starts and creates only unseen starts; duplicate starts fail closed.
+Scouting duration is derived from each session's start and end, and the full
+duration is assigned to the `Asia/Tokyo` date on which the session started
+without a midnight split. This observed Scouting duration is not the monthly
 BackStage duration used by Creator Management for incentive calculations.
 
 The domain entrypoints load exact capability/input-to-Binding routes from

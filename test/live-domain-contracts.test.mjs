@@ -4,28 +4,29 @@ import test from "node:test";
 import { sha256CanonicalJson } from "../src/domain-contracts.mjs";
 import {
   DailyLiveAggregateSchema,
+  LiveHistorySyncPlanSchema,
   LiveObservationSchema,
-  LiveSessionReconciliationSchema,
 } from "../src/live-domain-contracts.mjs";
 
 const accountReference = { platform: "tiktok", username: "synthetic.creator" };
 
-function observation({
-  observationId = "6ba7b811-9dad-41d1-80b4-00c04fd430c8",
-  observationSessionKey = "scan-session-a",
+function completedSession({
   startAt = "2026-09-01T12:00:00.000Z",
   endAt = "2026-09-01T13:00:00.000Z",
 } = {}) {
+  return {
+    startAt,
+    endAt,
+    likeCount: 100,
+    likeStatus: "observed_exact",
+  };
+}
+
+function observation({
+  observationId = "6ba7b811-9dad-41d1-80b4-00c04fd430c8",
+  sessions = [completedSession()],
+} = {}) {
   const scan = { mode: "incremental", stopReason: "known-anchor", knownMatchCount: 1 };
-  const sessions = [
-    {
-      observationSessionKey,
-      startAt,
-      endAt,
-      likeCount: 100,
-      likeStatus: "observed_exact",
-    },
-  ];
   return {
     contractVersion: 2,
     observationId,
@@ -55,25 +56,13 @@ function observation({
   };
 }
 
-function canonicalSession(sourceSessions) {
-  return {
-    contractVersion: 2,
-    sessionKey: "canonical-session-a",
-    subject: { version: 2, accountReference },
-    startAt: "2026-09-01T12:00:00.000Z",
-    endAt: "2026-09-01T13:00:00.000Z",
-    likeCount: 100,
-    likeStatus: "accepted_exact",
-    sourceSessions,
-  };
-}
-
-test("LIVE observations bind each normalized scan payload and preserve unavailable values", () => {
+test("LIVE observations contain only completed sessions keyed by exact start time", () => {
   assert.equal(LiveObservationSchema.parse(observation()).sessions[0].likeCount, 100);
   assert.throws(
     () => LiveObservationSchema.parse({ ...observation(), payloadSha256: "b".repeat(64) }),
     /payload hash/,
   );
+
   const unavailable = observation();
   unavailable.sessions[0].likeCount = null;
   unavailable.sessions[0].likeStatus = "not_available";
@@ -82,68 +71,86 @@ test("LIVE observations bind each normalized scan payload and preserve unavailab
     sessions: unavailable.sessions,
   });
   assert.equal(LiveObservationSchema.parse(unavailable).sessions[0].likeCount, null);
-});
 
-test("multiple observations may support one canonical LIVE session", () => {
-  const first = observation();
-  const second = observation({
-    observationId: "6ba7b813-9dad-41d1-80b4-00c04fd430c8",
-    observationSessionKey: "scan-session-b",
-  });
-  const reconciliation = LiveSessionReconciliationSchema.parse({
-    contractVersion: 2,
-    accountReference,
-    reconciledAt: "2026-09-02T01:00:00.000Z",
-    observations: [first, second],
-    canonicalSessions: [
-      canonicalSession([
-        {
-          observationId: first.observationId,
-          observationSessionKey: "scan-session-a",
-        },
-        {
-          observationId: second.observationId,
-          observationSessionKey: "scan-session-b",
-        },
-      ]),
-    ],
-    quarantinedSessions: [],
-  });
-  assert.equal(reconciliation.canonicalSessions.length, 1);
-  assert.equal(reconciliation.observations.length, 2);
-});
-
-test("an observed LIVE session cannot become two canonical sessions or disappear silently", () => {
-  const source = observation();
-  const ref = {
-    observationId: source.observationId,
-    observationSessionKey: "scan-session-a",
-  };
-  const base = {
-    contractVersion: 2,
-    accountReference,
-    reconciledAt: "2026-09-02T01:00:00.000Z",
-    observations: [source],
-    quarantinedSessions: [],
-  };
   assert.throws(
     () =>
-      LiveSessionReconciliationSchema.parse({
-        ...base,
-        canonicalSessions: [
-          canonicalSession([ref]),
-          { ...canonicalSession([ref]), sessionKey: "canonical-session-b" },
-        ],
-      }),
-    /multiple dispositions/,
+      LiveObservationSchema.parse(
+        observation({
+          sessions: [
+            completedSession(),
+            completedSession({ endAt: "2026-09-01T13:30:00.000Z" }),
+          ],
+        }),
+      ),
+    /start time is duplicated/,
   );
   assert.throws(
-    () => LiveSessionReconciliationSchema.parse({ ...base, canonicalSessions: [] }),
-    /no disposition/,
+    () =>
+      LiveObservationSchema.parse(
+        observation({
+          sessions: [
+            completedSession({
+              startAt: "2026-09-02T00:15:00.000Z",
+              endAt: "2026-09-02T00:30:00.000Z",
+            }),
+          ],
+        }),
+      ),
+    /ongoing session/,
   );
 });
 
-test("daily aggregates accept canonical session contributions once and verify totals", () => {
+test("LIVE history sync creates only sessions with unseen exact start times", () => {
+  const existing = completedSession();
+  const unseen = completedSession({
+    startAt: "2026-09-01T14:00:00.000Z",
+    endAt: "2026-09-01T14:30:00.000Z",
+  });
+  const source = observation({ sessions: [unseen, existing] });
+  const plan = {
+    contractVersion: 2,
+    accountReference,
+    plannedAt: "2026-09-02T01:00:00.000Z",
+    observation: source,
+    existingRecords: [{ recordId: "rec-existing", startAt: existing.startAt }],
+    matches: [{ startAt: existing.startAt, recordId: "rec-existing" }],
+    creates: [unseen],
+  };
+  const parsed = LiveHistorySyncPlanSchema.parse(plan);
+  assert.equal(parsed.matches.length, 1);
+  assert.equal(parsed.creates.length, 1);
+
+  assert.throws(
+    () => LiveHistorySyncPlanSchema.parse({ ...plan, creates: [existing, unseen] }),
+    /creates do not match unseen start times/,
+  );
+  assert.throws(
+    () => LiveHistorySyncPlanSchema.parse({ ...plan, matches: [] }),
+    /matches do not cover existing start times/,
+  );
+});
+
+test("LIVE history sync fails closed on duplicate existing start times", () => {
+  const source = observation();
+  assert.throws(
+    () =>
+      LiveHistorySyncPlanSchema.parse({
+        contractVersion: 2,
+        accountReference,
+        plannedAt: "2026-09-02T01:00:00.000Z",
+        observation: source,
+        existingRecords: [
+          { recordId: "rec-a", startAt: source.sessions[0].startAt },
+          { recordId: "rec-b", startAt: source.sessions[0].startAt },
+        ],
+        matches: [{ startAt: source.sessions[0].startAt, recordId: "rec-a" }],
+        creates: [],
+      }),
+    /existing LIVE start time is duplicated/,
+  );
+});
+
+test("daily aggregates accept completed session start times once and verify totals", () => {
   const aggregate = {
     contractVersion: 2,
     accountReference,
@@ -155,13 +162,11 @@ test("daily aggregates accept canonical session contributions once and verify to
     calculatedAt: "2026-09-02T01:00:00.000Z",
     sessionContributions: [
       {
-        sessionKey: "canonical-session-a",
         sessionStartAt: "2026-09-01T12:00:00.000Z",
         sessionEndAt: "2026-09-01T13:00:00.000Z",
         likeCount: 100,
       },
       {
-        sessionKey: "canonical-session-b",
         sessionStartAt: "2026-09-01T14:00:00.000Z",
         sessionEndAt: "2026-09-01T14:30:00.000Z",
         likeCount: 50,
@@ -183,7 +188,7 @@ test("daily aggregates accept canonical session contributions once and verify to
         totalObservedLiveMinutes: 120,
         totalLikeCount: 200,
       }),
-    /session key is duplicated/,
+    /session start time is duplicated/,
   );
   assert.throws(
     () => DailyLiveAggregateSchema.parse({ ...aggregate, totalObservedLiveMinutes: 91 }),
@@ -195,7 +200,6 @@ test("daily aggregates accept canonical session contributions once and verify to
         ...aggregate,
         sessionContributions: [
           {
-            sessionKey: "cross-midnight-session",
             sessionStartAt: "2026-09-02T14:30:00.000Z",
             sessionEndAt: "2026-09-02T16:00:00.000Z",
             likeCount: 100,
@@ -221,7 +225,6 @@ test("cross-midnight LIVE duration is attributed entirely to the JST session sta
     calculatedAt: "2026-09-02T16:30:00.000Z",
     sessionContributions: [
       {
-        sessionKey: "cross-midnight-session",
         sessionStartAt: "2026-09-01T14:30:00.000Z",
         sessionEndAt: "2026-09-01T16:00:00.000Z",
         likeCount: 100,

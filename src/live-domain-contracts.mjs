@@ -1,7 +1,6 @@
 import * as z from "zod/v4";
 
 import {
-  AccountObservationSubjectSchema,
   DOMAIN_CONTRACT_VERSION,
   ObservationEnvelopeSchema,
   PlatformAccountReferenceSchema,
@@ -76,9 +75,8 @@ function calendarDateInTokyo(value) {
 const IsoDateTimeSchema = z.string().refine(isIsoDateTime, "must be a timezone-aware ISO date-time");
 const CalendarDateSchema = z.string().refine(isCalendarDate, "must be a calendar date");
 
-export const ObservedLiveSessionSchema = z
+export const CompletedLiveSessionSchema = z
   .object({
-    observationSessionKey: z.string().min(1),
     startAt: IsoDateTimeSchema,
     endAt: IsoDateTimeSchema,
     likeCount: z.number().int().nonnegative().nullable(),
@@ -114,16 +112,20 @@ const LiveScanSchema = z
 export const LiveObservationSchema = ObservationEnvelopeSchema.extend({
   observationType: z.literal("live-history-scan"),
   scan: LiveScanSchema,
-  sessions: z.array(ObservedLiveSessionSchema),
+  sessions: z.array(CompletedLiveSessionSchema),
 })
   .strict()
   .superRefine((observation, context) => {
-    const keys = new Set();
+    const startTimes = new Set();
+    const observedAt = Date.parse(observation.observedAt);
     for (const session of observation.sessions) {
-      if (keys.has(session.observationSessionKey)) {
-        context.addIssue({ code: "custom", message: "observation session key is duplicated" });
+      if (startTimes.has(session.startAt)) {
+        context.addIssue({ code: "custom", message: "completed LIVE session start time is duplicated" });
       }
-      keys.add(session.observationSessionKey);
+      startTimes.add(session.startAt);
+      if (Date.parse(session.endAt) > observedAt) {
+        context.addIssue({ code: "custom", message: "LIVE history cannot contain an ongoing session" });
+      }
     }
     const payloadSha256 = sha256CanonicalJson({
       scan: observation.scan,
@@ -134,57 +136,17 @@ export const LiveObservationSchema = ObservationEnvelopeSchema.extend({
     }
   });
 
-export const LiveObservationSessionRefSchema = z
+export const ExistingLiveHistoryRecordSchema = z
   .object({
-    observationId: z.string().uuid(),
-    observationSessionKey: z.string().min(1),
+    recordId: z.string().min(1),
+    startAt: IsoDateTimeSchema,
   })
   .strict();
 
-export const CanonicalLiveSessionSchema = z
+const MatchedLiveHistoryRecordSchema = z
   .object({
-    contractVersion: z.literal(DOMAIN_CONTRACT_VERSION),
-    sessionKey: z.string().min(1),
-    subject: AccountObservationSubjectSchema,
     startAt: IsoDateTimeSchema,
-    endAt: IsoDateTimeSchema,
-    likeCount: z.number().int().nonnegative().nullable(),
-    likeStatus: z.enum(["accepted_exact", "accepted_rounded", "unavailable"]),
-    sourceSessions: z.array(LiveObservationSessionRefSchema).min(1),
-  })
-  .strict()
-  .superRefine((session, context) => {
-    const start = Date.parse(session.startAt);
-    const end = Date.parse(session.endAt);
-    if (end < start || end - start > 24 * 60 * 60 * 1000) {
-      context.addIssue({ code: "custom", message: "canonical LIVE session duration is invalid" });
-    }
-    if (session.likeStatus === "unavailable" && session.likeCount !== null) {
-      context.addIssue({ code: "custom", message: "unavailable canonical likes must remain null" });
-    }
-    if (session.likeStatus !== "unavailable" && session.likeCount === null) {
-      context.addIssue({ code: "custom", message: "accepted canonical likes require a count" });
-    }
-    const refs = new Set();
-    for (const source of session.sourceSessions) {
-      const key = `${source.observationId}\u0000${source.observationSessionKey}`;
-      if (refs.has(key)) {
-        context.addIssue({ code: "custom", message: "canonical source session is duplicated" });
-      }
-      refs.add(key);
-    }
-  });
-
-const QuarantinedLiveSessionSchema = z
-  .object({
-    sourceSession: LiveObservationSessionRefSchema,
-    reason: z.enum([
-      "ambiguous-natural-key",
-      "conflicting-session-facts",
-      "missing-account-reference",
-      "invalid-session",
-    ]),
-    detail: z.string().min(1).optional(),
+    recordId: z.string().min(1),
   })
   .strict();
 
@@ -192,83 +154,78 @@ function accountKey(reference) {
   return sha256CanonicalJson(PlatformAccountReferenceSchema.parse(reference));
 }
 
-function sourceSessionKey(source) {
-  return `${source.observationId}\u0000${source.observationSessionKey}`;
-}
-
-export const LiveSessionReconciliationSchema = z
+export const LiveHistorySyncPlanSchema = z
   .object({
     contractVersion: z.literal(DOMAIN_CONTRACT_VERSION),
     accountReference: PlatformAccountReferenceSchema,
-    reconciledAt: IsoDateTimeSchema,
-    observations: z.array(LiveObservationSchema).min(1),
-    canonicalSessions: z.array(CanonicalLiveSessionSchema),
-    quarantinedSessions: z.array(QuarantinedLiveSessionSchema),
+    plannedAt: IsoDateTimeSchema,
+    observation: LiveObservationSchema,
+    existingRecords: z.array(ExistingLiveHistoryRecordSchema),
+    matches: z.array(MatchedLiveHistoryRecordSchema),
+    creates: z.array(CompletedLiveSessionSchema),
   })
   .strict()
-  .superRefine((reconciliation, context) => {
-    const expectedAccount = accountKey(reconciliation.accountReference);
-    const observationIds = new Set();
-    const availableSources = new Set();
-    for (const observation of reconciliation.observations) {
-      if (observationIds.has(observation.observationId)) {
-        context.addIssue({ code: "custom", message: "LIVE observation ID is duplicated" });
-      }
-      observationIds.add(observation.observationId);
-      if (accountKey(observation.subject.accountReference) !== expectedAccount) {
-        context.addIssue({ code: "custom", message: "LIVE observation account does not match" });
-      }
-      for (const session of observation.sessions) {
-        availableSources.add(
-          sourceSessionKey({
-            observationId: observation.observationId,
-            observationSessionKey: session.observationSessionKey,
-          }),
-        );
-      }
+  .superRefine((plan, context) => {
+    if (accountKey(plan.observation.subject.accountReference) !== accountKey(plan.accountReference)) {
+      context.addIssue({ code: "custom", message: "LIVE observation account does not match" });
     }
 
-    const sessionKeys = new Set();
-    const disposition = new Map();
-    for (const session of reconciliation.canonicalSessions) {
-      if (sessionKeys.has(session.sessionKey)) {
-        context.addIssue({ code: "custom", message: "canonical LIVE session key is duplicated" });
+    const existingByStart = new Map();
+    for (const record of plan.existingRecords) {
+      if (existingByStart.has(record.startAt)) {
+        context.addIssue({ code: "custom", message: "existing LIVE start time is duplicated" });
       }
-      sessionKeys.add(session.sessionKey);
-      if (accountKey(session.subject.accountReference) !== expectedAccount) {
-        context.addIssue({ code: "custom", message: "canonical LIVE session account does not match" });
+      existingByStart.set(record.startAt, record.recordId);
+    }
+
+    const observedByStart = new Map(
+      plan.observation.sessions.map((session) => [session.startAt, session]),
+    );
+    const expectedCreateStarts = new Set(
+      [...observedByStart.keys()].filter((startAt) => !existingByStart.has(startAt)),
+    );
+    const expectedMatchStarts = new Set(
+      [...observedByStart.keys()].filter((startAt) => existingByStart.has(startAt)),
+    );
+
+    const createStarts = new Set();
+    for (const session of plan.creates) {
+      if (createStarts.has(session.startAt)) {
+        context.addIssue({ code: "custom", message: "LIVE create start time is duplicated" });
       }
-      for (const source of session.sourceSessions) {
-        const key = sourceSessionKey(source);
-        if (!availableSources.has(key)) {
-          context.addIssue({ code: "custom", message: "canonical LIVE session source is missing" });
-        }
-        if (disposition.has(key)) {
-          context.addIssue({ code: "custom", message: "observed LIVE session has multiple dispositions" });
-        }
-        disposition.set(key, "canonical");
+      createStarts.add(session.startAt);
+      const observed = observedByStart.get(session.startAt);
+      if (!observed || sha256CanonicalJson(observed) !== sha256CanonicalJson(session)) {
+        context.addIssue({ code: "custom", message: "LIVE create is not an exact observed session" });
       }
     }
-    for (const quarantine of reconciliation.quarantinedSessions) {
-      const key = sourceSessionKey(quarantine.sourceSession);
-      if (!availableSources.has(key)) {
-        context.addIssue({ code: "custom", message: "quarantined LIVE session source is missing" });
-      }
-      if (disposition.has(key)) {
-        context.addIssue({ code: "custom", message: "observed LIVE session has multiple dispositions" });
-      }
-      disposition.set(key, "quarantined");
+    if (
+      createStarts.size !== expectedCreateStarts.size ||
+      [...expectedCreateStarts].some((startAt) => !createStarts.has(startAt))
+    ) {
+      context.addIssue({ code: "custom", message: "LIVE creates do not match unseen start times" });
     }
-    for (const key of availableSources) {
-      if (!disposition.has(key)) {
-        context.addIssue({ code: "custom", message: "observed LIVE session has no disposition" });
+
+    const matchStarts = new Set();
+    for (const match of plan.matches) {
+      if (matchStarts.has(match.startAt)) {
+        context.addIssue({ code: "custom", message: "LIVE match start time is duplicated" });
       }
+      matchStarts.add(match.startAt);
+      if (existingByStart.get(match.startAt) !== match.recordId) {
+        context.addIssue({ code: "custom", message: "LIVE match does not reference the exact existing record" });
+      }
+    }
+    if (
+      matchStarts.size !== expectedMatchStarts.size ||
+      [...expectedMatchStarts].some((startAt) => !matchStarts.has(startAt))
+    ) {
+      context.addIssue({ code: "custom", message: "LIVE matches do not cover existing start times" });
     }
   });
 
 const DailySessionContributionSchema = z
   .object({
-    sessionKey: z.string().min(1),
     sessionStartAt: IsoDateTimeSchema,
     sessionEndAt: IsoDateTimeSchema,
     likeCount: z.number().int().nonnegative().nullable(),
@@ -299,12 +256,12 @@ export const DailyLiveAggregateSchema = z
   })
   .strict()
   .superRefine((aggregate, context) => {
-    const sessionKeys = new Set();
+    const sessionStartTimes = new Set();
     for (const contribution of aggregate.sessionContributions) {
-      if (sessionKeys.has(contribution.sessionKey)) {
-        context.addIssue({ code: "custom", message: "daily aggregate session key is duplicated" });
+      if (sessionStartTimes.has(contribution.sessionStartAt)) {
+        context.addIssue({ code: "custom", message: "daily aggregate session start time is duplicated" });
       }
-      sessionKeys.add(contribution.sessionKey);
+      sessionStartTimes.add(contribution.sessionStartAt);
       if (calendarDateInTokyo(contribution.sessionStartAt) !== aggregate.localDate) {
         context.addIssue({
           code: "custom",
