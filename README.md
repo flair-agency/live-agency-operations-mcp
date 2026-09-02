@@ -44,6 +44,13 @@ not exposed in this release. They deliberately do not define a Flair-owned
 Actor, candidacy, platform-account, creator, or membership ID while the v2
 identity model is under review.
 
+`live-domain-contracts.mjs` additionally keeps LIVE scan observations,
+reconciled canonical sessions, and JST daily aggregates as separate contracts.
+Each observed session must be assigned exactly once to a canonical session or a
+review quarantine. Multiple scans may support one canonical session, while a
+daily aggregate accepts each canonical session key at most once. Raw repeated
+observations therefore cannot be summed as separate LIVE sessions.
+
 The domain entrypoints load exact capability/input-to-Binding routes from
 `config/v2-provider-binding-profiles.json` in the composition root. Missing,
 duplicate, mismatched, or uninstalled profiles fail closed. Set
