@@ -1,12 +1,17 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
+import { reviewScoutingAccountEvidence } from "./account-evidence-review.mjs";
 import {
+  AccountEvidenceReviewPurposeSchema,
+  AccountIdentityEvidenceObservationSchema,
+  KnownScoutingAccountEvidenceSchema,
   ScoutingObserveCreatorLiveHistoryOutputSchema,
   ScoutingObserveCreatorProfileOutputSchema,
   ScoutingObserveInvitationEligibilityOutputSchema,
   ScoutingValidateCreatorLiveHistoryOutputSchema,
   ScoutingValidateCreatorProfileOutputSchema,
   ScoutingValidateInvitationEligibilityOutputSchema,
+  ScoutingReviewAccountEvidenceOutputSchema,
   createReadAuditContext,
 } from "./domain-contracts.mjs";
 import { READ_ONLY_INTERACTIVE, READ_ONLY_LOCAL, safeTool } from "./mcp-support.mjs";
@@ -20,7 +25,7 @@ import {
 
 export const CREATOR_SCOUTING_SERVER_INSTRUCTIONS = `This is the read-only Creator Scouting MCP v2 acquisition surface.
 
-It prepares and validates public-profile, LIVE-history, and invitation-eligibility observations for prospective creators. It never sends messages, follows creators, sends gifts, submits invitations, changes relationships, or writes to Lark. Those authorities are not available in this process.
+It prepares and validates public-profile, LIVE-history, and invitation-eligibility observations for prospective creators. It can also compare already-normalized account evidence to surface duplicate-account and username-change candidates for human review. Evidence review never updates a username, creates an alias, merges records, or asserts that multiple accounts belong to the same Actor. It never sends messages, follows creators, sends gifts, submits invitations, changes relationships, or writes to Lark. Those authorities are not available in this process.
 
 When an observe tool returns interaction_required, use the returned private instructions only in the user-selected authenticated session. Preserve the exact targetManifest and sourceContext, collect exactly one observation per requested account, and then call the matching validation tool. Stop instead of guessing when authentication, account, schema, coverage, or provider selection is ambiguous.`;
 
@@ -36,7 +41,7 @@ function audited(tool, handler) {
 export function createCreatorScoutingMcpServer({ runtime }) {
   if (!runtime) throw new TypeError("runtime is required");
   const server = new McpServer(
-    { name: "creator-scouting", version: "0.3.0" },
+    { name: "creator-scouting", version: "0.4.0" },
     { instructions: CREATOR_SCOUTING_SERVER_INSTRUCTIONS },
   );
 
@@ -137,6 +142,25 @@ export function createCreatorScoutingMcpServer({ runtime }) {
     },
     audited("validate_creator_invitation_eligibility_observations", (input) =>
       runtime.validateCreatorInvitationStatus(input),
+    ),
+  );
+
+  server.registerTool(
+    "review_creator_account_evidence",
+    {
+      title: "Review creator account evidence",
+      description:
+        "Compare normalized timestamped TikTok account observations and surface possible duplicate-account or username-change candidates. It returns evidence and conflicts for human review and never mutates records, creates aliases, merges accounts, or asserts Actor identity.",
+      inputSchema: {
+        purpose: AccountEvidenceReviewPurposeSchema,
+        target: AccountIdentityEvidenceObservationSchema,
+        knownAccounts: KnownScoutingAccountEvidenceSchema.array(),
+      },
+      outputSchema: ScoutingReviewAccountEvidenceOutputSchema,
+      annotations: READ_ONLY_LOCAL,
+    },
+    audited("review_creator_account_evidence", (input) =>
+      reviewScoutingAccountEvidence(input),
     ),
   );
 

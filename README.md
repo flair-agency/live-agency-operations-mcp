@@ -29,7 +29,8 @@ compatibility surface. Version 2 Skills use two separately launched read-only
 domain processes that share the same provider-resolution runtime:
 
 - Creator Scouting exposes paired observe/validate tools for public profiles,
-  LIVE history, and invitation eligibility.
+  LIVE history, and invitation eligibility, plus a local evidence-review tool
+  for duplicate-account and username-change candidates.
 - Creator Management exposes `read_creator_activity`,
   `observe_creator_activity`, and `validate_creator_activity_observations`.
 
@@ -43,6 +44,13 @@ unavailable values, write intent, approval, and readback results; write tools ar
 not exposed in this release. They deliberately do not define a Flair-owned
 Actor, candidacy, platform-account, creator, or membership ID while the v2
 identity model is under review.
+
+`review_creator_account_evidence` compares already-normalized timestamped
+TikTok observations. Exact current or historical usernames and matching TikTok
+User IDs are reported separately from supporting avatar and nickname matches.
+Nickname equality alone does not create a candidate. Conflicting usernames or
+User IDs fail closed. The result always requires human review before any
+username update or alias creation and never asserts an anonymous Actor match.
 
 `live-domain-contracts.mjs` models the profile LIVE-history source as completed
 sessions only. Within one account, the exact session start timestamp is the
@@ -126,6 +134,6 @@ npm run test:mcp
 ```
 
 After adding the configuration, restart Codex and confirm that Creator Scouting
-advertises six tools and Creator Management advertises three tools. The legacy
+advertises seven tools and Creator Management advertises three tools. The legacy
 mixed process continues to advertise its original five-tool compatibility
 surface.

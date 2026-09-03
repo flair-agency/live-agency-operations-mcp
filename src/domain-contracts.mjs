@@ -60,6 +60,91 @@ export const EvidenceRefSchema = z.object({
   mediaType: z.string().min(1),
 });
 
+const ObservedAtSchema = z
+  .string()
+  .regex(
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/,
+    "observedAt must be an ISO date-time with an explicit timezone",
+  )
+  .refine((value) => Number.isFinite(Date.parse(value)), {
+    message: "observedAt must be a real date-time",
+  });
+
+export const AccountIdentityEvidenceObservationSchema = z.object({
+  observedAt: ObservedAtSchema,
+  accountReference: PlatformAccountReferenceSchema,
+  nickname: z.string().min(1).nullable(),
+  avatarSha256: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
+  evidence: z.array(EvidenceRefSchema).min(1),
+});
+
+export const KnownScoutingAccountEvidenceSchema = z.object({
+  creatorRecordId: z.string().min(1),
+  currentObservation: AccountIdentityEvidenceObservationSchema,
+  historicalObservations: z.array(AccountIdentityEvidenceObservationSchema),
+});
+
+export const AccountEvidenceReviewPurposeSchema = z.enum([
+  "duplicate-check",
+  "username-change",
+]);
+
+export const AccountEvidenceSignalSchema = z.object({
+  kind: z.enum([
+    "current-username-exact",
+    "historical-username-exact",
+    "platform-user-id-exact",
+    "avatar-sha256-exact",
+    "nickname-exact",
+  ]),
+  targetObservedAt: ObservedAtSchema,
+  knownObservedAt: ObservedAtSchema.nullable(),
+  targetEvidenceIds: z.array(z.string().uuid()),
+  knownEvidenceIds: z.array(z.string().uuid()),
+});
+
+export const AccountEvidenceCandidateSchema = z.object({
+  creatorRecordId: z.string().min(1),
+  currentUsername: z.string().min(1),
+  disposition: z.enum([
+    "same-current-username",
+    "known-historical-username",
+    "possible-username-change",
+    "supporting-profile-evidence-only",
+  ]),
+  evidenceGrade: z.enum([
+    "direct-account-reference",
+    "corroborated-profile-evidence",
+    "profile-evidence-hint",
+  ]),
+  signals: z.array(AccountEvidenceSignalSchema).min(1),
+});
+
+export const AccountEvidenceConflictSchema = z.object({
+  code: z.enum([
+    "current-username-maps-to-multiple-records",
+    "platform-user-id-maps-to-multiple-records",
+    "username-and-platform-user-id-disagree",
+    "record-has-conflicting-platform-user-ids",
+    "username-match-conflicts-with-platform-user-id",
+  ]),
+  creatorRecordIds: z.array(z.string().min(1)).min(1),
+  detail: z.string().min(1),
+});
+
+export const AccountEvidenceReviewOutputSchema = z.object({
+  status: z.enum(["no-candidate", "review-required", "conflict"]),
+  purpose: AccountEvidenceReviewPurposeSchema,
+  target: AccountIdentityEvidenceObservationSchema,
+  candidates: z.array(AccountEvidenceCandidateSchema),
+  conflicts: z.array(AccountEvidenceConflictSchema),
+  decisionBoundary: z.object({
+    automaticMutationAllowed: z.literal(false),
+    actorIdentityAsserted: z.literal(false),
+    recommendation: z.enum(["none", "manual-account-review"]),
+  }),
+});
+
 export const UnavailableFieldSchema = z.object({
   field: z.string().min(1),
   reason: z.enum([
@@ -168,6 +253,7 @@ function requestIdFromHash(hash) {
 }
 
 function targetCount(input) {
+  if (input?.target) return 1;
   if (Number.isInteger(input?.targetManifest?.rowCount)) return input.targetManifest.rowCount;
   if (Number.isInteger(input?.source?.expectedRowCount)) return input.source.expectedRowCount;
   if (input?.request?.targetMode === "selected" && Array.isArray(input.request.accountKeys)) {
@@ -235,6 +321,9 @@ export const ScoutingObserveCreatorLiveHistoryOutputSchema = withAudit(
 );
 export const ScoutingValidateCreatorLiveHistoryOutputSchema = withAudit(
   ValidateCreatorLiveHistoryOutputSchema,
+);
+export const ScoutingReviewAccountEvidenceOutputSchema = withAudit(
+  AccountEvidenceReviewOutputSchema,
 );
 export const ManagementReadCreatorActivityOutputSchema = withAudit(
   ReadCreatorActivityOutputSchema,

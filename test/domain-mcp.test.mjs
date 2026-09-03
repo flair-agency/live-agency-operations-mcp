@@ -66,12 +66,14 @@ test("Creator Scouting is a separate read-only MCP process", async (t) => {
       "validate_creator_live_history_observations",
       "observe_creator_invitation_eligibility",
       "validate_creator_invitation_eligibility_observations",
+      "review_creator_account_evidence",
     ],
   );
   assertReadOnly(listed.tools);
   assert.equal(connection.client.getInstructions(), CREATOR_SCOUTING_SERVER_INSTRUCTIONS);
   assert.match(connection.client.getInstructions(), /never sends messages/i);
   assert.match(connection.client.getInstructions(), /never.*writes to Lark/i);
+  assert.match(connection.client.getInstructions(), /never updates a username/i);
 
   const result = await connection.client.callTool({
     name: "observe_creator_invitation_eligibility",
@@ -108,6 +110,70 @@ test("Creator Scouting is a separate read-only MCP process", async (t) => {
     result.structuredContent.auditContext.providerBinding.bindingId,
     "invitation-eligibility",
   );
+
+  const evidenceReview = await connection.client.callTool({
+    name: "review_creator_account_evidence",
+    arguments: {
+      purpose: "username-change",
+      target: {
+        observedAt: "2026-09-04T00:00:00.000Z",
+        accountReference: {
+          platform: "tiktok",
+          username: "new_name",
+          platformUserId: "synthetic-platform-id",
+        },
+        nickname: "Synthetic",
+        avatarSha256: "b".repeat(64),
+        evidence: [
+          {
+            evidenceId: "00000000-0000-4000-8000-000000000001",
+            kind: "manual-observation",
+            capturedAt: "2026-09-04T00:00:00.000Z",
+            sha256: "c".repeat(64),
+            mediaType: "application/json",
+          },
+        ],
+      },
+      knownAccounts: [
+        {
+          creatorRecordId: "rec_synthetic",
+          currentObservation: {
+            observedAt: "2026-09-03T00:00:00.000Z",
+            accountReference: {
+              platform: "tiktok",
+              username: "old_name",
+              platformUserId: "synthetic-platform-id",
+            },
+            nickname: "Synthetic",
+            avatarSha256: "b".repeat(64),
+            evidence: [
+              {
+                evidenceId: "00000000-0000-4000-8000-000000000002",
+                kind: "api-response",
+                capturedAt: "2026-09-03T00:00:00.000Z",
+                sha256: "d".repeat(64),
+                mediaType: "application/json",
+              },
+            ],
+          },
+          historicalObservations: [],
+        },
+      ],
+    },
+  });
+
+  assert.equal(evidenceReview.isError, undefined);
+  assert.equal(evidenceReview.structuredContent.status, "review-required");
+  assert.equal(
+    evidenceReview.structuredContent.candidates[0].disposition,
+    "possible-username-change",
+  );
+  assert.equal(
+    evidenceReview.structuredContent.decisionBoundary.automaticMutationAllowed,
+    false,
+  );
+  assert.equal(evidenceReview.structuredContent.auditContext.targetCount, 1);
+  assert.equal(evidenceReview.structuredContent.auditContext.providerBinding, undefined);
 });
 
 test("Creator Management is a separate read-only MCP process", async (t) => {
